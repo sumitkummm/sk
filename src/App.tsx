@@ -372,6 +372,11 @@ export default function App() {
   };
 
   const handleContentSelect = async (content: Content) => {
+    if (content.contentType === 'document' || content.contentType === 'test') {
+      window.open(content.url, '_blank');
+      return;
+    }
+    
     // Set view first for immediate feedback
     setView('player');
     setSelectedContent(content);
@@ -435,6 +440,21 @@ export default function App() {
             </div>
 
                 <nav className="space-y-1">
+                  <button
+                    onClick={() => {
+                      setActiveTab('profile');
+                      setView('profile');
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                      activeTab === 'profile' 
+                        ? 'bg-[#5A4BDA]/10 text-[#5A4BDA]' 
+                        : 'text-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5 hover:text-[#1A1A1A]'
+                    }`}
+                  >
+                    <User size={18} />
+                    My Profile
+                  </button>
+
                   {[
                     { id: 'batches', icon: Layout, label: 'My Batches' },
                     { id: 'accounts', icon: User, label: 'Stored Accounts' },
@@ -442,20 +462,6 @@ export default function App() {
                     { id: 'library', icon: Library, label: 'Library' },
                     { id: 'tests', icon: Trophy, label: 'Test Series' },
                   ].map((item) => (
-                    <button
-                      onClick={() => {
-                        setActiveTab('profile');
-                        setView('profile');
-                      }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
-                        activeTab === 'profile' 
-                          ? 'bg-[#5A4BDA]/10 text-[#5A4BDA]' 
-                          : 'text-[#1A1A1A]/40 hover:bg-[#1A1A1A]/5 hover:text-[#1A1A1A]'
-                      }`}
-                    >
-                      <User size={18} />
-                      My Profile
-                    </button>
                     <button
                       key={item.id}
                       onClick={() => {
@@ -922,75 +928,102 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-10"
             >
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
                   <h2 className="text-4xl font-black tracking-tight mb-2">{selectedSubject?.subjectName}</h2>
                   <p className="text-[#1A1A1A]/40 font-medium">Lectures and study materials for this subject.</p>
                 </div>
+                
+                <div className="flex flex-wrap gap-2 bg-[#F8F9FB] p-1.5 rounded-2xl border border-[#1A1A1A]/5">
+                  {(['videos', 'notes', 'notices', 'DppVideos', 'DppNotes', 'tests'] as ContentType[]).map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => {
+                        setContentType(type);
+                        if (selectedBatch && selectedSubject) {
+                          const batchId = selectedBatch._id || selectedBatch.id;
+                          fetchContents(token, batchId!, selectedSubject._id, type);
+                        }
+                      }}
+                      className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                        contentType === type 
+                          ? 'bg-white text-[#5A4BDA] shadow-sm' 
+                          : 'text-[#1A1A1A]/30 hover:text-[#1A1A1A]'
+                      }`}
+                    >
+                      {type.replace('Dpp', 'DPP ')}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {contents.map((content) => (
                   <motion.div 
                     key={content._id}
-                    whileHover={{ x: 8 }}
-                    className="group flex flex-col md:flex-row md:items-center gap-6 p-5 bg-white rounded-3xl border border-[#1A1A1A]/5 hover:border-[#5A4BDA]/30 hover:shadow-lg transition-all"
+                    whileHover={{ y: -4 }}
+                    className="group bg-white rounded-[2rem] border border-[#1A1A1A]/5 hover:border-[#5A4BDA]/30 hover:shadow-xl hover:shadow-[#5A4BDA]/5 transition-all duration-300 overflow-hidden"
                   >
                     <div 
                       onClick={() => handleContentSelect(content)}
-                      className="w-full md:w-32 h-20 bg-[#F8F9FB] rounded-xl overflow-hidden flex items-center justify-center shadow-inner relative cursor-pointer"
+                      className="aspect-video bg-[#F8F9FB] relative cursor-pointer overflow-hidden"
                     >
                       <ImageWithFallback 
                         src={resolveImageUrl(content.thumbnail || content.image)} 
                         alt={content.topic} 
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         fallbackText={content.topic}
                       />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Play size={24} fill="white" className="text-white" />
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <div className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-[#5A4BDA] shadow-xl transform scale-90 group-hover:scale-100 transition-transform">
+                          {content.contentType === 'video' ? <Play size={28} fill="currentColor" /> : <FileText size={28} />}
+                        </div>
                       </div>
+                      {content.contentType === 'video' && (
+                        <div className="absolute bottom-4 right-4 px-3 py-1 bg-black/60 backdrop-blur-md text-white text-[10px] font-black uppercase tracking-widest rounded-lg">
+                          Video
+                        </div>
+                      )}
                     </div>
                     
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-black text-lg group-hover:text-[#5A4BDA] transition-colors line-clamp-1">{content.topic}</h3>
-                      <div className="flex items-center gap-3 mt-1">
-                        <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-blue-100 text-blue-700">
-                          Lecture
-                        </span>
-                        <span className="text-[10px] font-bold text-[#1A1A1A]/30 uppercase tracking-widest">Physics Wallah</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <button 
-                        onClick={() => handleContentSelect(content)}
-                        className="flex-1 md:flex-none px-6 py-2.5 bg-[#5A4BDA] text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#4A3BCA] transition-colors flex items-center justify-center gap-2"
-                      >
-                        <Play size={14} fill="currentColor" />
-                        Play Video
-                      </button>
+                    <div className="p-6">
+                      <h3 className="font-black text-lg group-hover:text-[#5A4BDA] transition-colors line-clamp-2 min-h-[3.5rem] leading-tight">
+                        {content.topic}
+                      </h3>
                       
-                      {content.noteUrl ? (
+                      <div className="mt-6 pt-6 border-t border-[#1A1A1A]/5 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            content.contentType === 'video' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'
+                          }`}>
+                            {content.contentType === 'video' ? <Video size={16} /> : <FileText size={16} />}
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-[#1A1A1A]/30">
+                            {content.contentType}
+                          </span>
+                        </div>
+                        
                         <button 
-                          onClick={() => window.open(getPdfProxyUrl(content.noteUrl || ""), '_blank')}
-                          className="flex-1 md:flex-none px-6 py-2.5 bg-[#F8F9FB] text-[#1A1A1A] text-xs font-black uppercase tracking-widest rounded-xl border border-[#1A1A1A]/5 hover:bg-[#5A4BDA]/10 hover:text-[#5A4BDA] transition-all flex items-center justify-center gap-2"
+                          onClick={() => handleContentSelect(content)}
+                          className="w-10 h-10 bg-[#F8F9FB] rounded-xl flex items-center justify-center text-[#1A1A1A]/20 group-hover:bg-[#5A4BDA] group-hover:text-white transition-all"
                         >
-                          <FileText size={14} />
-                          View Notes
+                          <ChevronRight size={20} />
                         </button>
-                      ) : (
-                        <button 
-                          disabled
-                          className="flex-1 md:flex-none px-6 py-2.5 bg-[#F8F9FB] text-[#1A1A1A]/20 text-xs font-black uppercase tracking-widest rounded-xl border border-[#1A1A1A]/5 cursor-not-allowed flex items-center justify-center gap-2"
-                        >
-                          <FileText size={14} />
-                          No Notes
-                        </button>
-                      )}
+                      </div>
                     </div>
                   </motion.div>
                 ))}
               </div>
+
+              {contents.length === 0 && !loading && (
+                <div className="text-center py-32 bg-white rounded-[3rem] border-2 border-dashed border-[#1A1A1A]/10">
+                  <div className="w-24 h-24 bg-[#F8F9FB] rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Layers size={40} className="text-[#1A1A1A]/20" />
+                  </div>
+                  <h3 className="text-2xl font-black mb-2">No {contentType} found</h3>
+                  <p className="text-[#1A1A1A]/40 font-medium max-w-xs mx-auto">Try selecting a different category or check back later.</p>
+                </div>
+              )}
             </motion.div>
           )}
 

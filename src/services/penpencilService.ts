@@ -89,13 +89,14 @@ export const penpencilService = {
   /**
    * Fetches contents (lectures/notes/exercises).
    */
-  getContents: async (token: string, batchId: string, subjectId: string, contentType = "videos", organisationId?: string) => {
+  getContents: async (token: string, batchId: string, subjectId: string, contentType = "videos", organisationId?: string, page: number = 1) => {
     const response = await axios.get(`${API_BASE}/lectures/${batchId}`, {
       params: { 
         token,
         subjectId,
         contentType,
-        organisationId
+        organisationId,
+        page
       }
     });
     
