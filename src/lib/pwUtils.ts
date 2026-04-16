@@ -71,41 +71,6 @@ export const getPdfProxyUrl = (url: string) => {
   return `https://dragoapi.vercel.app/pdf/${encodeURIComponent(resolvedUrl)}`;
 };
 
-const PROXY_WORKERS = [
-  'https://pwapi.sumitkumawat090912.workers.dev/api/proxy',
-  'https://shrill-bird-6f22pwapi.sumitkumawat090912.workers.dev/api/proxy'
-];
-
-export const getStreamProxyUrl = (url: string, proxyIndex: number = 0) => {
-  if (!url) return "";
-  const resolvedUrl = resolveFileUrl(url);
-  const workerBase = PROXY_WORKERS[proxyIndex % PROXY_WORKERS.length];
-  return `${workerBase}?url=${encodeURIComponent(resolvedUrl)}`;
-};
-
-export const constructPwUrl = (url: string, token: string, parentId?: string, childId?: string, videoId?: string) => {
-  if (!url) return "";
-  try {
-    // Clean extra slashes using regex
-    let cleanUrl = url.replace(/([^:])\/\//g, '$1/');
-    
-    // The user requested a specific format: base.mpd&parentId=...&childId=...&videoId=...&token=...
-    // We strip existing query params and use '&' as requested
-    const baseUrl = cleanUrl.split('?')[0].split('&')[0];
-    
-    let finalUrl = baseUrl;
-    finalUrl += `&parentId=${parentId || ''}`;
-    finalUrl += `&childId=${childId || ''}`;
-    finalUrl += `&videoId=${videoId || childId || ''}`;
-    finalUrl += `&token=${token || ''}`;
-    
-    return finalUrl;
-  } catch (err) {
-    console.warn('pwUtils: URL Construction failed, returning original:', err);
-    return url;
-  }
-};
-
 export const fetchPlaybackUrl = async (lectureId: string, token: string, parentId?: string, vType?: string) => {
   let url = `/api/playback?lectureId=${lectureId}&token=${token}`;
   if (parentId) url += `&parentId=${parentId}`;
@@ -125,13 +90,6 @@ export const fetchPlaybackUrl = async (lectureId: string, token: string, parentI
   return await response.json();
 };
 
-export const getLocalVideoProxyUrl = (url: string, token: string) => {
-  if (!url) return "";
-  const resolvedUrl = resolveFileUrl(url);
-  // Ensure the token is also in the proxied URL for the backend to use if needed
-  return `/api/video-proxy?url=${encodeURIComponent(resolvedUrl)}&token=${encodeURIComponent(token)}`;
-};
-
 export const isPdf = (url: string) => {
   if (!url) return false;
   const lowerUrl = url.toLowerCase();
@@ -140,4 +98,15 @@ export const isPdf = (url: string) => {
          lowerUrl.includes('drive.google.com') || 
          lowerUrl.includes('docs.google.com') ||
          lowerUrl.includes('attachment');
+};
+
+export const getPlayerUrl = (videoUrl: string, token: string, parentId?: string, childId?: string) => {
+  const resolvedUrl = resolveFileUrl(videoUrl);
+  if (!resolvedUrl) return "";
+
+  // Updated to new API: https://anonymouspwplayerr-3cfbfedeb317.herokuapp.com/pw?url={url}&token={pw_token}
+  // This API strictly requires parentId and childId parameters.
+  const playerUrl = `https://anonymouspwplayerr-3cfbfedeb317.herokuapp.com/pw?url=${encodeURIComponent(resolvedUrl)}&token=${token}&parentId=${encodeURIComponent(parentId || "")}&childId=${encodeURIComponent(childId || "")}`;
+  
+  return playerUrl;
 };

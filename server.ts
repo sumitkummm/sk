@@ -27,7 +27,8 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
-  const CLIENT_ID = "5eb3cfee95f3240011b3e5c1";
+  const CLIENT_ID = "5eb393ee95fab7468a79d189"; // Updated to mobile client ID
+  const ALT_CLIENT_ID = "5eb3cfee95f3240011b3e5c1"; // Original web client ID as fallback
 
   // Helper to extract orgId from JWT token
   const getOrgIdFromToken = (token: string): string | null => {
@@ -132,15 +133,19 @@ async function startServer() {
         try {
           const url = urlBase.includes('?') ? `${urlBase}&organisationId=${altOrgId}` : `${urlBase}?organisationId=${altOrgId}`;
           
-          // Try with multiple client-id variations
-          const clientIds = [CLIENT_ID, altOrgId, "5f33vet7zhzic6v2liac7y"];
-          for (const cid of clientIds) {
-            try {
-              console.log(`Trying Alt Org: ${altOrgId} with Client-ID: ${cid}`);
-              const headers = getHeaders(token, { ...extraHeaders, organisationId: altOrgId, "client-id": cid });
-              return await axios.get(url, { headers });
-            } catch (e: any) {
-              if (e.response?.status !== 401) throw e;
+          // Try with multiple client-id and client-type variations
+          const clientIds = [CLIENT_ID, ALT_CLIENT_ID, altOrgId, "5f33vet7zhzic6v2liac7y"];
+          const clientTypes = ["web", "MOBILE"];
+
+          for (const cType of clientTypes) {
+            for (const cid of clientIds) {
+              try {
+                console.log(`Trying Alt Org: ${altOrgId} with Client-ID: ${cid} and Type: ${cType}`);
+                const headers = getHeaders(token, { ...extraHeaders, organisationId: altOrgId, "client-id": cid, "client-type": cType });
+                return await axios.get(url, { headers });
+              } catch (e: any) {
+                if (e.response?.status !== 401) throw e;
+              }
             }
           }
         } catch (err2: any) {
@@ -350,17 +355,31 @@ async function startServer() {
       }
 
       // Apply URL transformations as requested by user
-      if (responseData && responseData.data) {
-        responseData.data = responseData.data.map((item: any) => {
-          if (item.url && (contentType === 'exercises-notes-videos' || contentType === 'DppVideos')) {
-            item.originalUrl = item.url;
-            item.url = item.url
-              .replace("d1d34p8vz63oiq", "d26g5bnklkwsh4")
-              .replace("mpd", "m3u8")
-              .trim();
-          }
-          return item;
-        });
+      if (responseData) {
+        const processItems = (items: any[]) => {
+          return items.map((item: any) => {
+            if (item.url && (contentType === 'exercises-notes-videos' || contentType === 'DppVideos')) {
+              item.originalUrl = item.url;
+              item.url = item.url
+                .replace("d1d34p8vz63oiq", "d26g5bnklkwsh4")
+                .replace("mpd", "m3u8")
+                .trim();
+            }
+            return item;
+          });
+        };
+
+        if (Array.isArray(responseData.data)) {
+          responseData.data = processItems(responseData.data);
+        } else if (responseData.data) {
+          if (Array.isArray(responseData.data.videos)) responseData.data.videos = processItems(responseData.data.videos);
+          if (Array.isArray(responseData.data.exercises)) responseData.data.exercises = processItems(responseData.data.exercises);
+          if (Array.isArray(responseData.data.notes)) responseData.data.notes = processItems(responseData.data.notes);
+        }
+        
+        if (Array.isArray(responseData.videos)) responseData.videos = processItems(responseData.videos);
+        if (Array.isArray(responseData.exercises)) responseData.exercises = processItems(responseData.exercises);
+        if (Array.isArray(responseData.notes)) responseData.notes = processItems(responseData.notes);
       }
 
       return res.json(responseData);
@@ -469,199 +488,19 @@ async function startServer() {
     }
   });
 
-  // DRM Playback Endpoint
-  app.get("/api/getPlayback", async (req, res) => {
-    const { lectureId, token } = req.query;
-
-    if (!lectureId || !token) {
-      return res.status(400).json({ error: "lectureId and token are required" });
-    }
-
-    try {
-      const headers = getHeaders(token as string, req.headers);
-      
-      // Call the original video provider API (Simulated PW API)
-      const response = await axios.get(`https://api.penpencil.co/v1/videos/get-playback-details?video_id=${lectureId}`, {
-        headers: headers
-      });
-
-      const data = response.data?.data;
-      
-      if (!data) {
-        throw new Error("Failed to retrieve playback details from provider");
-      }
-
-      const mpdUrl = data.videoDetails?.dashUrl || data.dashUrl;
-      const licenseUrl = data.videoDetails?.licenseUrl || data.licenseUrl || "https://widevine-dash.ezdrm.com/proxy?pX=YOUR_ID";
-
-      if (!mpdUrl) {
-        return res.status(404).json({ error: "MPD URL not found for this lecture" });
-      }
-
-      res.json({
-        mpdUrl,
-        licenseUrl,
-        originalData: data
-      });
-
-    } catch (error: any) {
-      console.error('Playback Fetch Error:', error.response?.data || error.message);
-      if (error.response?.status === 401) {
-        return res.status(401).json({ error: "Token expired or invalid" });
-      }
-      res.status(500).json({ error: "Failed to fetch playback details: " + (error.response?.data?.message || error.message) });
-    }
-  });
-
-  // New Unified Playback Endpoint
-  app.get("/api/playback", async (req, res) => {
-    const { lectureId, token, parentId, vType } = req.query;
-
-    if (!lectureId || !token) {
-      return res.status(400).json({ error: "lectureId and token are required" });
-    }
+  // Test Questions Endpoint
+  app.get("/api/tests/:testId/questions", async (req, res) => {
+    const { testId } = req.params;
+    const { token, organisationId } = req.query;
+    if (!token) return res.status(401).json({ error: "Authentication required" });
+    const orgId = (organisationId as string) || CLIENT_ID;
 
     try {
-      const headers = getHeaders(token as string, req.headers);
-      
-      // Construct the URL with optional parameters
-      let apiUrl = `https://api.penpencil.co/v1/videos/get-playback-details?video_id=${lectureId}`;
-      if (parentId) apiUrl += `&parentId=${parentId}`;
-      if (vType) apiUrl += `&vType=${vType}`;
-
-      const response = await axios.get(apiUrl, {
-        headers: headers
-      });
-
-      const data = response.data?.data;
-      if (!data) throw new Error("No data from provider");
-
-      console.log('Playback Data:', JSON.stringify(data, null, 2));
-
-      let videoUrl = data.videoDetails?.dashUrl || data.dashUrl || data.videoDetails?.hlsUrl || data.hlsUrl;
-      const licenseUrl = data.videoDetails?.licenseUrl || data.licenseUrl;
-
-      if (!videoUrl) {
-        return res.status(404).json({ error: "Playback URL not found" });
-      }
-
-      // Construct the URL in the specific format requested by the user:
-      // base.mpd&parentId=...&childId=...&videoId=...&token=...
-      const videoId = data.videoId || data.video_id || data.videoDetails?.videoId || lectureId;
-      const childId = data.childId || data.child_id || data.videoDetails?.childId || lectureId;
-
-      if (videoUrl.includes(".mpd")) {
-        const baseMpd = videoUrl.split('?')[0].split('&')[0];
-        videoUrl = `${baseMpd}&parentId=${parentId || ''}&childId=${childId}&videoId=${videoId}&token=${token}`;
-      } else if (videoUrl.includes(".m3u8")) {
-        const baseHls = videoUrl.split('?')[0].split('&')[0];
-        videoUrl = `${baseHls}&parentId=${parentId || ''}&childId=${childId}&videoId=${videoId}&token=${token}`;
-      }
-
-      // Determine type
-      let type = "mp4";
-      if (videoUrl.includes(".mpd")) type = "mpd";
-      else if (videoUrl.includes(".m3u8")) type = "m3u8";
-
-      res.json({
-        videoUrl,
-        licenseUrl,
-        type
-      });
-
+      const url = `https://api.penpencil.co/v3/test-service/tests/${testId}/questions`;
+      const response = await fetchWithFallbacks(url, token as string, orgId, req.headers);
+      res.json(response.data);
     } catch (error: any) {
-      console.error('Playback Fetch Error:', error.response?.data || error.message);
-      const status = error.response?.status || 500;
-      const message = error.response?.data?.message || error.response?.data?.error || error.message;
-      res.status(status).json({ error: message });
-    }
-  });
-
-  // Video Proxy Route
-  app.get("/api/video-proxy", async (req, res) => {
-    const videoUrl = req.query.url as string;
-    const token = req.query.token as string;
-
-    if (!videoUrl) {
-      return res.status(400).send("URL is required");
-    }
-
-    try {
-      const headers = getHeaders(token, req.headers);
-      
-      // Forward Range header from client to target
-      if (req.headers.range) {
-        headers.range = req.headers.range;
-      }
-
-      // Remove host header to avoid conflicts
-      delete headers.host;
-
-      console.log(`Proxying request: ${videoUrl}`);
-      if (headers.range) console.log(`Range: ${headers.range}`);
-
-      const response = await axios({
-        method: 'get',
-        url: videoUrl,
-        headers: headers,
-        responseType: 'stream',
-        timeout: 60000, // Increased timeout for video
-        validateStatus: () => true
-      });
-
-      // Forward status and headers
-      res.status(response.status);
-      
-      // Forward relevant headers
-      const headersToForward = [
-        'content-type', 
-        'content-length', 
-        'accept-ranges', 
-        'content-range', 
-        'cache-control',
-        'access-control-allow-origin',
-        'access-control-allow-methods',
-        'access-control-allow-headers'
-      ];
-
-      headersToForward.forEach(h => {
-        if (response.headers[h]) {
-          res.setHeader(h, response.headers[h]);
-        }
-      });
-
-      // Ensure CORS for the proxy itself
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', '*');
-
-      if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-      }
-
-      response.data.pipe(res);
-
-      response.data.on('error', (err: any) => {
-        console.error('Proxy Stream Error:', err.message);
-        if (!res.headersSent) {
-          res.status(500).end();
-        } else {
-          res.end();
-        }
-      });
-
-      req.on('close', () => {
-        // Abort axios request if client closes connection
-        if (response.data && typeof response.data.destroy === 'function') {
-          response.data.destroy();
-        }
-      });
-
-    } catch (error: any) {
-      console.error('Video Proxy Error:', error.message);
-      if (!res.headersSent) {
-        res.status(500).send("Proxy error: " + error.message);
-      }
+      res.status(error.response?.status || 500).json(error.response?.data || { error: error.message });
     }
   });
 

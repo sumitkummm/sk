@@ -25,10 +25,7 @@ import {
   Bell
 } from 'lucide-react';
 import { penpencilService, Batch, Subject, Content } from './services/penpencilService';
-import { HlsPlayer } from './components/HlsPlayer';
-import { DashPlayer } from './components/DashPlayer';
-import { DrmPlayer } from './components/DrmPlayer';
-import { PremiumPlayer } from './components/PremiumPlayer';
+import { QuizPlayer } from './components/QuizPlayer';
 
 type ViewState = 'login' | 'batches' | 'subjects' | 'contents' | 'player' | 'accounts' | 'profile';
 type ContentType = 'videos' | 'notes' | 'notices' | 'DppVideos' | 'DppNotes' | 'tests';
@@ -39,7 +36,7 @@ import {
   resolveVideoUrl, 
   resolveFileUrl,
   getPdfProxyUrl,
-  getStreamProxyUrl,
+  getPlayerUrl,
   isPdf 
 } from './lib/pwUtils';
 
@@ -306,11 +303,15 @@ export default function App() {
         data = await response.json();
       } else {
         // Map UI types to API types
-        const apiType = type === 'notices' ? 'notes' : type;
+        let apiType: string = type;
+        if (type === 'notices') apiType = 'notes';
+        else if (type === 'DppVideos') apiType = 'exercises-notes-videos';
+        else if (type === 'DppNotes') apiType = 'exercises-notes-notes';
+        
         data = await penpencilService.getContents(authToken, batchId, subjectId, apiType, userOrgId || undefined, page);
       }
       
-      const items = Array.isArray(data) ? data : (data.data || data.videos || []);
+      const items = Array.isArray(data) ? data : (data.data || data.videos || data.exercises || data.notes || data.lectures || []);
       const processedContents = items.map((item: any) => {
         // Handle TestQuiz format
         if (type === 'tests') {
@@ -327,26 +328,32 @@ export default function App() {
           };
         }
 
-        // Handle Notes/Notices
-        if (type === 'notes' || type === 'notices' || type === 'DppNotes') {
-          const attachment = item.homeworkIds?.[0]?.attachmentIds?.[0] || {};
-          return {
-            _id: item._id,
-            topic: item.topic || item.name || item.homeworkIds?.[0]?.topic || "Untitled Document",
-            url: attachment.baseUrl ? `${attachment.baseUrl}${attachment.key}` : item.url,
-            contentType: 'document',
-            thumbnail: item.thumbnail || item.image,
-            parentId: batchId,
-            childId: item._id,
-            vType: 'document'
-          };
+        // Handle Notes/Notices/DPP Notes/DPP Videos (if structured as homeworks)
+        if (type === 'notes' || type === 'notices' || type === 'DppNotes' || type === 'DppVideos') {
+          const homework = item.homeworkIds?.[0] || {};
+          const attachment = homework.attachmentIds?.[0] || {};
+          
+          // If it's DppVideos, we only use this logic if it actually has homeworkIds
+          if (item.homeworkIds && item.homeworkIds.length > 0) {
+            return {
+              _id: item._id,
+              topic: item.topic || item.name || homework.topic || "Untitled Content",
+              url: attachment.baseUrl ? `${attachment.baseUrl}${attachment.key}` : (item.url || item.videoUrl),
+              contentType: type === 'DppVideos' ? 'video' : 'document',
+              thumbnail: item.thumbnail || item.image,
+              parentId: batchId,
+              childId: item._id,
+              vType: type === 'DppVideos' ? 'video' : 'document'
+            };
+          }
         }
 
-        // Handle Videos
+        // Handle Videos (Standard Lectures)
+        const videoUrl = item.url || item.videoUrl || item.videoDetails?.videoUrl || item.videoDetails?.url;
         return {
           _id: item._id,
           topic: item.name || item.topic || "Untitled Lecture",
-          url: item.url || item.videoUrl,
+          url: videoUrl,
           contentType: 'video',
           thumbnail: item.thumbnail || item.image || item.videoDetails?.image,
           parentId: batchId,
@@ -372,7 +379,7 @@ export default function App() {
   };
 
   const handleContentSelect = async (content: Content) => {
-    if (content.contentType === 'document' || content.contentType === 'test') {
+    if (content.contentType === 'document') {
       window.open(content.url, '_blank');
       return;
     }
@@ -1003,12 +1010,31 @@ export default function App() {
                           </span>
                         </div>
                         
-                        <button 
-                          onClick={() => handleContentSelect(content)}
-                          className="w-10 h-10 bg-[#F8F9FB] rounded-xl flex items-center justify-center text-[#1A1A1A]/20 group-hover:bg-[#5A4BDA] group-hover:text-white transition-all"
-                        >
-                          <ChevronRight size={20} />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const playbackUrl = getPlayerUrl(
+                                content.url,
+                                token,
+                                content.parentId || selectedSubject?._id || '',
+                                content.childId || selectedSubject?._id || ''
+                              );
+                              navigator.clipboard.writeText(playbackUrl);
+                              alert('Playback URL copied to clipboard!');
+                            }}
+                            className="w-10 h-10 bg-[#F8F9FB] rounded-xl flex items-center justify-center text-[#1A1A1A]/20 hover:bg-[#5A4BDA]/10 hover:text-[#5A4BDA] transition-all"
+                            title="Copy Playback URL"
+                          >
+                            <Key size={18} />
+                          </button>
+                          <button 
+                            onClick={() => handleContentSelect(content)}
+                            className="w-10 h-10 bg-[#F8F9FB] rounded-xl flex items-center justify-center text-[#1A1A1A]/20 group-hover:bg-[#5A4BDA] group-hover:text-white transition-all"
+                          >
+                            <ChevronRight size={20} />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </motion.div>
@@ -1052,14 +1078,24 @@ export default function App() {
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <PremiumPlayer 
-                    lectureId={selectedContent._id || selectedContent.childId || ""}
+                ) : selectedContent.contentType === 'test' ? (
+                  <QuizPlayer 
+                    testId={selectedContent._id || selectedContent.childId || ""}
                     token={token}
-                    parentId={selectedContent.parentId || selectedBatch?._id}
-                    subjectId={selectedSubject?._id}
-                    vType={selectedContent.vType || "BATCHES"}
-                    fallbackUrl={selectedContent.url}
+                    title={selectedContent.topic}
+                    onClose={() => setView('contents')}
+                  />
+                ) : (
+                  <iframe 
+                    src={getPlayerUrl(
+                      selectedContent.url,
+                      token,
+                      selectedContent.parentId || selectedBatch?._id || '',
+                      selectedContent.childId || selectedContent._id || ''
+                    )}
+                    className="w-full h-full border-0 rounded-[2.5rem]"
+                    allow="autoplay; encrypted-media; fullscreen"
+                    allowFullScreen
                     title={selectedContent.topic}
                   />
                 )}
@@ -1071,17 +1107,23 @@ export default function App() {
                 </div>
                 <h2 className="text-3xl font-black mb-6 tracking-tight">{selectedContent.topic}</h2>
                 
-                <PremiumPlayer 
-                  lectureId={selectedContent.childId || selectedContent._id}
-                  token={token}
-                  parentId={selectedContent.parentId}
-                  subjectId={selectedSubject?._id}
-                  vType={selectedContent.vType}
-                  title={selectedContent.topic}
-                  fallbackUrl={`https://www.pw.live/study/batches/lecture/${selectedContent.childId || selectedContent._id}`}
-                />
-
                 <div className="mt-8 flex flex-wrap items-center gap-6 text-sm font-bold text-[#1A1A1A]/40">
+                  <button 
+                    onClick={() => {
+                      const playbackUrl = getPlayerUrl(
+                        selectedContent.url,
+                        token,
+                        selectedContent.parentId || selectedSubject?._id || '',
+                        selectedContent.childId || selectedSubject?._id || ''
+                      );
+                      navigator.clipboard.writeText(playbackUrl);
+                      alert('Full Playback Link copied!');
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#5A4BDA]/5 text-[#5A4BDA] rounded-xl hover:bg-[#5A4BDA]/10 transition-all"
+                  >
+                    <Key size={16} />
+                    <span>Copy Playback Link</span>
+                  </button>
                   <div className="flex items-center gap-2">
                     {isPdf(selectedContent.url) ? <FileText size={16} /> : <Video size={16} />}
                     <span>{isPdf(selectedContent.url) ? 'Study Material' : 'Video Lecture'}</span>
